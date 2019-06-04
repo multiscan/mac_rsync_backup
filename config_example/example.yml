@@ -1,0 +1,80 @@
+ ---
+# Rsync backup configuration file
+
+# Base source path for all backups (my home directory)
+src: "/Users/cangiani"
+
+# Destination device and path. In this example final destinatino will be /Volumes/RsyncBackup/work
+deviceName: "RsyncBackup"
+encrypted: 1
+dst: "work"
+
+# Global Exclude used for all backups
+exclude:
+  - ".DS_Store"
+  - "aaa*"
+  - "bbb*"
+  - "ccc*"
+  - "backup"
+  - "*.bkp"
+  - "data"
+  - "deletable"
+  - "node_modules"
+  - "old"
+  - "speta"
+  - "PARK"
+  - "tmp"
+  - "volumes"
+
+# This is the list of directories to backup
+backups:
+  # I constantly edit my scripts in ~/bin. 
+  - dir: "bin"
+    frequency: daily
+    exclude: {}
+    configs: {}
+  
+  # Where I have currently running projects. The most actively edited are synced hourly.
+  - path: Projects/VPSI
+    title: "VPSI projects"
+    skip: []
+    
+    # frequency and exclude are inherited (but can be overwriten) by all subfolders
+    frequency: daily
+    exclude: {}
+    
+    # when path is given above, we rsync the subfolders of path. Optionally, we can
+    # provide special options for each subfolder to override those given for the whole path.
+    configs:
+      LHD:
+        frequency: hourly
+        exclude:
+          - mysql  
+      external-noc:
+        frequency: hourly
+      inform_docker:
+        frequency: hourly
+      wp-dev:
+        exclude:
+          - wordpress-state.tgz
+
+  # This is a path with projects related to my previous job. No need to backup so often....
+  - path: Projects/Kandou
+    title: "Kandou projects"
+    frequency: monthly
+    # there is the option to skip one of the subfolders of path
+    skip:
+      - "bombini"
+    exclude: {}
+    configs:
+      staticmevideo:
+        exclude: 
+          - "projects"
+          
+  # Here are projects I essentially no longer touch
+  - path: Projects/Archived
+    title: "Archived projects"
+    frequency: monthly
+    skip: []
+    exclude: {}
+    configs: {}
