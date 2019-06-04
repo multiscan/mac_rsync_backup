@@ -103,3 +103,4 @@ backups:
  ## TODO
   - [ ] Fix cron script and make installation easier;
   - [ ] Add a script for cleaning up older backups and free up space on the backup disk;
+  - [ ] Figure out how to prompt for password when running as cron
