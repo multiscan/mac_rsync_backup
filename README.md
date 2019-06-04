@@ -8,7 +8,9 @@ A script that I use for making periodic copies of selected folders from my lapto
 
 ## Configuration
 
-The script is configured with a `yaml` file which is essentially divided in two parts: 
+The script is configured with a `yaml` file. The path of the file (either full or relative to a set of standard paths) is passed as parameter to the script.
+ 
+The configuration file is essentially divided in two parts: 
   1. few global parameters (name of the backup disk, global `rsync` exclude rules, etc.)
   2. a list of _backups_ each providing at least a _dir_ or a _path_ entry. Where
     * a _dir_ will be _rsynced_ as is;

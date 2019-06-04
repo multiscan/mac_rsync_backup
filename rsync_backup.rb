@@ -173,14 +173,17 @@ end
 # The file is searched in few standard directories.
 #
 ymlbase = ARGV[0] || "{APPNAME}.yml"
-search_path = [
-  "/etc", "/etc/{APPNAME}", 
-  File.expand_path('~'), File.expand_path("~/.{APPNAME}"), 
-  File.dirname(__FILE__), File.dirname(__FILE__) + "/config", "."
-].map{|p| Pathname.new(p)}
-while p=search_path.pop
-  ymlpath = p + ymlbase
-  break if ymlpath.file?
+ymlpath = Pathname.new(ymlbase)
+unless ymlpath.file?
+  search_path = [
+    "/etc", "/etc/{APPNAME}", 
+    File.expand_path('~'), File.expand_path("~/.{APPNAME}"), 
+    File.dirname(__FILE__), File.dirname(__FILE__) + "/config", "."
+  ].map{|p| Pathname.new(p)}
+  while p=search_path.pop
+    ymlpath = p + ymlbase
+    break if ymlpath.file?
+  end
 end
 die "Cannot find configuration  file #{ymlbase}" unless ymlpath.file?
 config = YAML.load_file(ymlpath)
