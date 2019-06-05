@@ -31,11 +31,8 @@ def clog(msg, lvl=0, indent=0)
 end
 
 def run(cmd)
-  cmdout = `#{cmd}`
+  cmdout = `#{cmd} 2>/dev/null`
   cmdsta = $?.exitstatus
-  unless cmdsta == 0
-    clog("!Error #{cmdsta} running #{cmd}:\n#{cmdout}", 1)
-  end
   clog(cmd, 3)
   clog(cmdout, 3)
   return cmdsta, cmdout
@@ -47,72 +44,130 @@ def run!(cmd)
   cmdout
 end
 
+class DiscDevice
+  attr_reader :name, :uuid, :info
+  def initialize(name)
+    @name = name
+    @uuid = nil
+    @info = {}
 
-def get_device_uuid(name)
-  cmdout = run!("diskutil cs info #{name}")
-  uuid_line = cmdout.lines.select{|l| l =~ /Parent LVF UUID:/}.first
-  if uuid_line.nil?
-    die "Error while looking for backup disk #{name}"
-  end
-  uuid = uuid_line.chomp.gsub(/^.*:\s*/, '')
-end
-
-def get_device_encryption_status(uuid)
-  cmdout = run!("diskutil cs list #{uuid}")
-  esta_line = cmdout.lines.select{|l| l =~ /Encryption Status:/}.first
-  if esta_line.nil?
-    die "Error while listing backup disk with uuid=#{uuid}"
-  end
-  esta = esta_line.chomp.gsub(/^.*:\s*/, '')
-end
-
-def attached?(name)
-  cmdsta, cmdout = run("diskutil list #{name}")
-  return cmdsta == 0
-end
-
-def mounted?(name)
-  cmdout = run!("mount")
-  return (cmdout =~ Regexp.new(" /Volumes/#{name} ")) ? true : false
-end
-
-def mount!(name)
-  die "Backup device #{name} is not attached" unless attached?(name)
-
-  if device_encrypted?(name)
-    # Decrypt and mount the device
-    unlock_device!(name)
+    @attached = (run!("diskutil list") =~ Regexp.new(" #{@name} "))
+    set_info if @attached
   end
 
-  cmdout = run!("diskutil mount #{name}")
-  "/Volumes/#{name}"
-end
-
-def unmount!(name)
-  if mounted?(name)
-    run!("diskutil unmount #{name}")
+  def attached?()
+    @attached
   end
-  die "Disk #{name} is still mounted after unmount" if mounted?(name)
-end
 
-# "diskutil cs info" returns error if the disk is not a "CoreStorage disk"
-def device_encrypted?(name)
-  cmdsta, cmdout = run("diskutil cs info #{name}")
-  cmdsta == 0
-end
-
-def unlock_device!(name)
-  uuid = get_device_uuid(name)
-  esta = get_device_encryption_status(uuid)
-  if esta == "Locked"
-    run!("diskutil cs unlockVolume #{uuid}")
-    esta = get_device_encryption_status(uuid)
-    die("Could not decrypt backup device #{name}") unless esta == "Unlocked"
-  else
-    clog "Device #{name} already unlocked", 2
+  def is_cs?()
+    not @uuid.nil?
   end
+
+  def mounted?()
+    cmdout = run!("mount")
+    return (cmdout =~ Regexp.new(" /Volumes/#{@name} ")) ? true : false
+  end
+
+  # return the name of the mount point or false if device cannot be mounted
+  def mount()
+    return false unless @attached
+    if @uuid
+      return false unless unlock()
+    end
+    cmdsta, cmdout = run("diskutil mount #{@name}")
+    if cmdsta == 0
+      return "/Volumes/#{@name}"
+    else
+      return false
+    end
+  end
+
+  def unmount()
+    if mounted?
+      run!("diskutil unmount #{@name}")
+    end
+    return !mounted?
+  end
+
+ private
+
+  def parse_info(cmdout=nil)
+    @info = {}
+    if cmdout.nil?
+      name_or_uuid = @uuid ? @uuid : @name
+      cmdsta, cmdout = run("diskutil cs info #{name_or_uuid}")
+      return unless cmdsta == 0
+    end      
+    # cmdout.lines.map{|l| l.chomp}.select{|l| l =~ /^\s+[a-zA-Z]:\s+[^ ]+$/}.each do |l|
+    cmdout.lines.map{|l| l.chomp}.each do |l|
+      k, v = l.split(/:\s*/)
+      @info[k.strip] = v
+    end
+    p @info
+  end
+
+  def set_info
+
+    # First try to get info. This works only when disk is already unlocked
+    # Apple have never understood how a command line tools should work :(
+    cmdsta, cmdout = run("diskutil cs info #{@name}")
+    if cmdsta == 0
+      parse_info(cmdout)
+      @uuid = @info["UUID"]
+    else
+      cmdout = run!("diskutil cs list")
+      m = cmdout =~ Regexp.new(" #{@name} *$")
+      return unless m
+      ll = cmdout.lines.map{|l| l.chomp}
+      m = false      
+      until m
+        l = ll.pop
+        m = (l =~ Regexp.new("LV Name:\s*#{@name}$"))
+      end
+      m = false      
+      until m
+        l = ll.pop
+        m = (l =~ Regexp.new("Logical Volume"))
+      end
+      @uuid = l.split.last
+      parse_info
+    end
+  end
+
+  def unlock()
+    return true unless @uuid
+    return true unless @info['LV Status'] == "Locked"
+    cmdsta, cmdout = run("diskutil cs unlockVolume #{@uuid}")
+    if cmdsta == 0
+      parse_info
+      return @info['LV Status'] != "Locked"
+    else
+      return false
+    end
+  end
+
 end
 
+# d = DiscDevice.new("RsyncBackup")
+# puts "uuid = #{d.uuid}"
+
+# puts "already mounted? #{d.mounted? ? 'yes' : 'no'}"
+
+# if d.mounted?
+#   puts "Disk is already mounted. Let's unmount it"
+#   if d.unmount
+#     puts "Ok Disk is now unmounted"
+#   else
+#     puts "!! Failed to unmount"
+#   end
+# else
+#   puts "Disk is npt mounted. Let's mount it"
+#   if d.mount
+#     puts "Ok Disk is now mounted"
+#   else
+#     puts "!! Failed to mount"
+#   end
+# end
 
 def backup_dir(src, dst, dirconf={"frequency" => "daily", "exclude" => {}}, exclude_file=nil)
   now=DateTime.now().to_time
@@ -192,7 +247,10 @@ config = YAML.load_file(ymlpath)
 base_src = Pathname.new(config['src'])
 die("Base source directory not mounted") unless base_src.directory?
 
-mountpath = mount!(config['deviceName'])
+bkpdev = DiscDevice.new(config['deviceName'])
+mountpath = bkpdev.mount
+die "Could not mount Backup disk #{config['deviceName']}" unless mountpath
+
 base_dst = Pathname.new(mountpath) + config['dst']
 FileUtils.mkdir_p(base_dst) unless base_dst.directory?
 
@@ -244,5 +302,5 @@ begin # ensure exclude_file is deleted
 
 ensure
   exclude_file.unlink
-  unmount!(config['deviceName'])
+  bkpdev.unmount
 end
