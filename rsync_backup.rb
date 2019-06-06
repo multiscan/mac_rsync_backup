@@ -5,7 +5,8 @@ require 'tempfile'
 require 'yaml'
 
 APPNAME="rsync_backup"
-LOG_LEVEL=2
+LOG_LEVEL=0
+DONOTIFY=true
 TIMEINTERVALS = {
   'hourly' => 3600,
   'daily'  => 3600 * 24,
@@ -15,8 +16,16 @@ TIMEINTERVALS = {
 }
 
 def die(msg)
-  puts msg
+  clog msg
+  notify(msg) if DONOTIFY
   exit 1
+end
+
+def notify(msg)
+  cmd = "osascript -e 'display notification \""
+  cmd << msg
+  cmd << "\" with title \"Rsync Backup\"'"
+  run(cmd)
 end
 
 def clog(msg, lvl=0, indent=0)
@@ -27,7 +36,8 @@ def clog(msg, lvl=0, indent=0)
     else
       puts msg
     end
-  end 
+  end
+  notify(msg) if (DONOTIFY and lvl==0)
 end
 
 def run(cmd)
@@ -51,6 +61,7 @@ class DiscDevice
     @uuid = nil
     @info = {}
 
+    @mountpoint = "/Volumes/#{@name}"
     @attached = (run!("diskutil list") =~ Regexp.new(" #{@name} "))
     set_info if @attached
   end
@@ -81,11 +92,11 @@ class DiscDevice
       return false unless unlock(pass)
     end
     cmdsta, cmdout = run("diskutil mount #{@name}")
-    if cmdsta == 0
-      return "/Volumes/#{@name}"
-    else
-      return false
-    end
+    return cmdsta == 0
+  end
+
+  def path()
+    mounted? ? @mountpoint : nil
   end
 
   def unmount()
@@ -104,12 +115,10 @@ class DiscDevice
       cmdsta, cmdout = run("diskutil cs info #{name_or_uuid}")
       return unless cmdsta == 0
     end      
-    # cmdout.lines.map{|l| l.chomp}.select{|l| l =~ /^\s+[a-zA-Z]:\s+[^ ]+$/}.each do |l|
     cmdout.lines.map{|l| l.chomp}.each do |l|
       k, v = l.split(/:\s*/)
       @info[k.strip] = v
     end
-    p @info
   end
 
   def set_info
@@ -175,6 +184,44 @@ end
 #   end
 # end
 
+def mount_device!(devconf)
+  bkpdev = DiscDevice.new(devconf['name'])
+  die "Backup disk not attached" unless bkpdev.attached?
+  
+  mountpath = nil
+  if bkpdev.locked?
+    devicePass=nil
+    # if a path is given then we assume the password is in an external file
+    # a) the first line of a plain
+    # b) a dictionary from a yml file that stores the pass on the 'pass' key
+    if devconf.key?('path')
+      p = Pathname.new(devconf['path'])
+      die "Cannot read backup device password file #{p}" unless (p.file? and p.readable?)
+      if p.extname == ".yml"
+        clog "Reading password from yml file #{p} (ext=#{p.extname})", 2
+        allpass = YAML.load_file(p)
+        die "Cannot find password for backup disk #{bkpdev.name} in yml file #{p}" unless allpass.key?(devconf['pass'])
+        devicePass = allpass[devconf['pass']]
+      else
+        clog "Reading password from plain text file #{p} (ext=#{p.extname})", 2
+        devicePass = File.open(p) {|f| f.readline}
+      end
+    elsif devconf.key?('pass')
+      devicePass = devconf['pass']
+    else
+      die "Encrypted disk #{bkpdev.name} needs password to be mounted"
+    end
+    clog "Mounting locked backup device with password #{devicePass}", 2
+    bkpdev.mount(devicePass)
+  else
+    clog "Mounting unlocked backup device without password", 2
+    bkpdev.mount
+  end
+  die "Could not mount Backup disk #{bkpdev.name}" unless bkpdev.path
+  clog "Backup disk successfully mounted", 2
+  return bkpdev
+end
+
 def backup_dir(src, dst, dirconf={"frequency" => "daily", "exclude" => {}}, exclude_file=nil)
   now=DateTime.now().to_time
   datedir=now.strftime("%Y-%m-%d-%H%M")
@@ -223,8 +270,11 @@ def backup_dir(src, dst, dirconf={"frequency" => "daily", "exclude" => {}}, excl
   cmd = "rsync -am --delete #{exc} #{lnk} #{src}/ #{dstdate}/"
   clog "lnk: #{lnk}", 2, 4
   clog "skip #{skip ? 'yes' : 'no'}", 2, 4
-  unless skip
-    # cmdout = run!(cmd)
+  if skip
+    return 0
+  else
+    run!(cmd)
+    return 1
   end
 end
 
@@ -254,41 +304,9 @@ base_src = Pathname.new(config['src'])
 die("Base source directory not mounted") unless base_src.directory?
 
 die "Device not provided" unless config.key?('device')
-devconf=config['device']
-bkpdev = DiscDevice.new(devconf['name'])
-mountpath = nil
-if bkpdev.locked?
-  devicePass=nil
-  # if a path is given then we assume the password is in an external file
-  # a) the first line of a plain
-  # b) a dictionary from a yml file that stores the pass on the 'pass' key
-  if devconf.key?('path')
-    p = Pathname.new(devconf['path'])
-    die "Cannot read backup device password file #{p}" unless (p.file? and p.readable?)
-    if p.extname == ".yml"
-      clog "Reading password from yml file #{p} (ext=#{p.extname})", 2
-      allpass = YAML.load_file(p)
-      die "Cannot find password for backup disk #{bkpdev.name} in yml file #{p}" unless allpass.key?(devconf['pass'])
-      devicePass = allpass[devconf['pass']]
-    else
-      clog "Reading password from plain text file #{p} (ext=#{p.extname})", 2
-      devicePass = File.open(p) {|f| f.readline}
-    end
-  elsif config.key?('devicePass')
-    devicePass = config['devicePass']
-  else
-    die "Encrypted disk #{bkpdev} needs password to be mounted"
-  end
-  clog "Mounting locked backup device with password #{devicePass}", 2
-  mountpath = bkpdev.mount(devicePass)
-else
-  clog "Mounting unlocked backup device without password", 2
-  mountpath = bkpdev.mount
-end
-die "Could not mount Backup disk #{bkpdev.name}" unless mountpath
-clog "Backup disk successfully mounted", 2
+bkpdev = mount_device!(config['device'])
 
-base_dst = Pathname.new(mountpath) + config['dst']
+base_dst = Pathname.new(bkpdev.path) + config['dst']
 FileUtils.mkdir_p(base_dst) unless base_dst.directory?
 
 die("Backup destination is not mounted") unless base_dst.directory?
@@ -297,6 +315,10 @@ die("Backup destination is not mounted") unless base_dst.directory?
 exclude_file = Tempfile.new("rsync_backup.exclude")
 exclude_file.write(config['exclude'].join("\n"))
 exclude_file.close
+
+dircount_total = 0
+dircount_changed = 0
+
 begin # ensure exclude_file is deleted 
 
   config['backups'].each do |backup|
@@ -309,7 +331,8 @@ begin # ensure exclude_file is deleted
         "frequency" => backup["frequency"]   || "daily",
         "exclude"   => backup["exclude"]     || {},
       }
-      backup_dir(src, dst, dirconf, exclude_file)
+      dircount_total = dircount_total + 1
+      dircount_changed = dircount_changed + backup_dir(src, dst, dirconf, exclude_file)
 
     else
       clog "\nbackup path #{backup['path']}", 2
@@ -332,7 +355,9 @@ begin # ensure exclude_file is deleted
         next if backup['skip'].include?(dir)
         dst = base_dst_path + dir
         dirconf = dirconfigs.key?(dir) ? dirconf_default.merge(dirconfigs[dir]) : dirconf_default
-        backup_dir(src, dst, dirconf, exclude_file)
+
+        dircount_total = dircount_total + 1
+        dircount_changed = dircount_changed + backup_dir(src, dst, dirconf, exclude_file)
       end
     end # dir or path
   end # all backups
@@ -341,3 +366,4 @@ ensure
   exclude_file.unlink
   bkpdev.unmount
 end
+clog "Done: #{dircount_changed } / #{dircount_total} changed." 
