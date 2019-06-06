@@ -286,8 +286,7 @@ else
   mountpath = bkpdev.mount
 end
 die "Could not mount Backup disk #{bkpdev.name}" unless mountpath
-clog "Backup disk successfully mounted"
-exit
+clog "Backup disk successfully mounted", 2
 
 base_dst = Pathname.new(mountpath) + config['dst']
 FileUtils.mkdir_p(base_dst) unless base_dst.directory?
