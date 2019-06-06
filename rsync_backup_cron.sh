@@ -1,46 +1,17 @@
 #!/bin/bash
 
-diskName="RsyncBackup"
-diskMount="/Volumes/$diskName"
-
 laconf="$HOME/Library/LaunchAgents/rsync_backup.plist"
 name="rsync_backup"
 
-cmd="$(cd $(dirname $0); pwd)/$(basename $0)"
-bkpcmd="ruby $(cd $(dirname $0); pwd)/$(basename $0 _cron.sh).rb -b $diskMount"
+casa="$(cd $(dirname $0); pwd)"
+CONFIGS=$(cd $casa/config ; /bin/ls *.yml)
+
+cmd="$casa/$(basename $0)"
+bkpcmd="ruby $(cd $(dirname $0); pwd)/$(basename $0 _cron.sh).rb"
 
 die() {
   echo "! $*" >&2
   exit 1
-}
-
-notify() {
-  osascript -e "display notification \"$*\" with title \"Rsync Backup\""
-}
-
-# mount_backup_or_die() {
-#   diskutil list | grep " $diskName " || die "Backup disk is not attached"
-#   mount | grep -q "$diskMount" && return # already mounted
-#   diskutil mount $diskName
-#   mount | grep -q "$diskMount" || die "Failed to mount backup disk $diskName"
-# }
-
-# umount_backup() {
-#   mount | grep -q "$diskMount" || return # not mounted
-#   diskutil unmount $diskName
-#   mount | grep -q "$diskMount"
-# }
-
-run_backup() {
-  # mount_backup_or_die
-  # do the backup
-  # if umount_backup ; then
-  #   alert "Done on $diskName"
-  #   return 0
-  # else
-  #   alert "Could not unmount backup disk $diskName"
-  #   return 1
-  # fi
 }
 
 # ------------------------------------------------------------- init
@@ -61,8 +32,7 @@ check_cron() {
           <string>$cmd</string>
         </array>
         <key>StartInterval</key> 
-        <integer>3600</integer>
-        <true/>
+        <integer>1800</integer>
       </dict>
       </plist>    
 ____EOF
@@ -110,6 +80,12 @@ reconfigure() {
   sleep 2
   check_cron
   status
+}
+
+run_backup() {
+  for c in $CONFIGS ; do
+    $bkpcmd $c
+  done
 }
 
 case $1 in 

@@ -4,7 +4,14 @@ A script that I use for making periodic copies of selected folders from my lapto
 
 ## Installation
 
-**To be done**. I would like to have the script started avery hour when the external disk is attached. Some of the things needed are in the `rsync_backup_cron.sh` shell script which is no longer working because the main script have changed since.
+If you want to automatically run the script for one or more configurations, just put all your `yml` configuration files inside a `config` directory at the same level of the script. Then execute
+
+```
+  rsync_backup_cron.sh status
+  rsync_backup_cron.sh start
+```
+
+This will setup a launchctl job that will run every 30 minutes. 
 
 ## Configuration
 
@@ -113,8 +120,10 @@ backups:
     configs: {}
 
  ```
- 
+
+An `example.yml` file is provided in a `config_example` directory.
+
  ## TODO
-  - [ ] Fix cron script and make installation easier;
+  - [X] Fix cron script and make installation easier;
   - [ ] Add a script for cleaning up older backups and free up space on the backup disk;
   - [X] Figure out how to prompt for password when running as cron
