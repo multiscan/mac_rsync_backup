@@ -25,10 +25,22 @@ The configuration file is essentially divided in two parts:
 # Base source path for all backups (my home directory)
 src: "/Users/cangiani"
 
-# Destination device and path. In this example final destinatino will be /Volumes/RsyncBackup/work
-deviceName: "RsyncBackup"
-encrypted: 1
+
+# Destination path relative to backup device root.
 dst: "work"
+
+# Backup device informations
+device:
+  # this is the name given to the disk upon formatting
+  name: "BackupUSB"
+  pass: "BlueWDPassport2"
+  path: "/keybase/private/YOUR_KB_USERNAME/backup_disk_pass.yml"
+  # pass is the true password if path is not given 
+  # otherwise it is just the key in a file that will look something like:
+  # ---
+  # BlueWDPassport1: password for disk BlueWDPassport1
+  # BlueWDPassport2: password for disk BlueWDPassport2
+  # Black2TbUSB: password for disk Black2TbUSB
 
 # Global Exclude used for all backups
 exclude:
@@ -105,4 +117,4 @@ backups:
  ## TODO
   - [ ] Fix cron script and make installation easier;
   - [ ] Add a script for cleaning up older backups and free up space on the backup disk;
-  - [ ] Figure out how to prompt for password when running as cron
+  - [X] Figure out how to prompt for password when running as cron

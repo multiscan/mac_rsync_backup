@@ -59,6 +59,11 @@ class DiscDevice
     @attached
   end
 
+  def locked?
+    return false unless @uuid
+    return @info['LV Status'] == "Locked"
+  end
+
   def is_cs?()
     not @uuid.nil?
   end
@@ -69,10 +74,11 @@ class DiscDevice
   end
 
   # return the name of the mount point or false if device cannot be mounted
-  def mount()
+  def mount(pass=nil)
     return false unless @attached
+    return false if pass.nil? and locked?
     if @uuid
-      return false unless unlock()
+      return false unless unlock(pass)
     end
     cmdsta, cmdout = run("diskutil mount #{@name}")
     if cmdsta == 0
@@ -134,10 +140,10 @@ class DiscDevice
     end
   end
 
-  def unlock()
+  def unlock(pass)
     return true unless @uuid
     return true unless @info['LV Status'] == "Locked"
-    cmdsta, cmdout = run("diskutil cs unlockVolume #{@uuid}")
+    cmdsta, cmdout = run("diskutil cs unlockVolume #{@uuid} -passphrase #{pass}")
     if cmdsta == 0
       parse_info
       return @info['LV Status'] != "Locked"
@@ -247,9 +253,41 @@ config = YAML.load_file(ymlpath)
 base_src = Pathname.new(config['src'])
 die("Base source directory not mounted") unless base_src.directory?
 
-bkpdev = DiscDevice.new(config['deviceName'])
-mountpath = bkpdev.mount
-die "Could not mount Backup disk #{config['deviceName']}" unless mountpath
+die "Device not provided" unless config.key?('device')
+devconf=config['device']
+bkpdev = DiscDevice.new(devconf['name'])
+mountpath = nil
+if bkpdev.locked?
+  devicePass=nil
+  # if a path is given then we assume the password is in an external file
+  # a) the first line of a plain
+  # b) a dictionary from a yml file that stores the pass on the 'pass' key
+  if devconf.key?('path')
+    p = Pathname.new(devconf['path'])
+    die "Cannot read backup device password file #{p}" unless (p.file? and p.readable?)
+    if p.extname == ".yml"
+      clog "Reading password from yml file #{p} (ext=#{p.extname})", 2
+      allpass = YAML.load_file(p)
+      die "Cannot find password for backup disk #{bkpdev.name} in yml file #{p}" unless allpass.key?(devconf['pass'])
+      devicePass = allpass[devconf['pass']]
+    else
+      clog "Reading password from plain text file #{p} (ext=#{p.extname})", 2
+      devicePass = File.open(p) {|f| f.readline}
+    end
+  elsif config.key?('devicePass')
+    devicePass = config['devicePass']
+  else
+    die "Encrypted disk #{bkpdev} needs password to be mounted"
+  end
+  clog "Mounting locked backup device with password #{devicePass}", 2
+  mountpath = bkpdev.mount(devicePass)
+else
+  clog "Mounting unlocked backup device without password", 2
+  mountpath = bkpdev.mount
+end
+die "Could not mount Backup disk #{bkpdev.name}" unless mountpath
+clog "Backup disk successfully mounted"
+exit
 
 base_dst = Pathname.new(mountpath) + config['dst']
 FileUtils.mkdir_p(base_dst) unless base_dst.directory?
