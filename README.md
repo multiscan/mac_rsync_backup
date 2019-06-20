@@ -127,3 +127,4 @@ An `example.yml` file is provided in a `config_example` directory.
   - [X] Fix cron script and make installation easier;
   - [ ] Add a script for cleaning up older backups and free up space on the backup disk;
   - [X] Figure out how to prompt for password when running as cron
+  - [ ] Test integration with openproject (just neglect this, please)
