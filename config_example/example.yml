@@ -1,9 +1,11 @@
  ---
 # Rsync backup configuration file
 
+# The job's title that will be displayed in the notification
+title: "BackupUSB"
+
 # Base source path for all backups (my home directory)
 src: "/Users/cangiani"
-
 
 # Destination path relative to backup device root.
 dst: "work"

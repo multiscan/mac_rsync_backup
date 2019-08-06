@@ -29,6 +29,9 @@ The configuration file is essentially divided in two parts:
  ---
 # Rsync backup configuration file
 
+# The job's title that will be displayed in the notification
+title: "BackupUSB"
+
 # Base source path for all backups (my home directory)
 src: "/Users/cangiani"
 
@@ -144,4 +147,3 @@ device:
   - [ ] Add a script for cleaning up older backups and free up space on the backup disk;
   - [X] Figure out how to prompt for password when running as cron
   - [X] Add option to backup to disk images instead of physical devices
-  

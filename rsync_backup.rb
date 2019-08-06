@@ -427,4 +427,4 @@ ensure
   exclude_file.unlink
   bkpdev.unmount
 end
-clog "Done: #{dircount_changed } / #{dircount_total} changed." 
+clog "#{config['title']||'Done'}: #{dircount_changed } / #{dircount_total} changed." 
