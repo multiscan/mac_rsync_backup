@@ -123,7 +123,25 @@ backups:
 
 An `example.yml` file is provided in a `config_example` directory.
 
+### Using disc images instead of devices
+
+Alternatively, the backup can be done into a disk image. This allows to store encrypted backup on an unencrypted disk that you use also for other things. You may want to create a different backup image foreach project. 
+
+In this case, just add the full path to the image file as `image` in the `device` section as in the following example:
+
+```
+...
+device:
+  name: "KeybaseBackup"
+  pass: "keybase"
+  path: "/keybase/private/YOUR_KB_USERNAME/ext_disc_pass.yml"
+  image: "/backup/keybase.sparsebundle"
+```
+
+
  ## TODO
   - [X] Fix cron script and make installation easier;
   - [ ] Add a script for cleaning up older backups and free up space on the backup disk;
   - [X] Figure out how to prompt for password when running as cron
+  - [X] Add option to backup to disk images instead of physical devices
+  

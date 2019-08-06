@@ -1,5 +1,6 @@
 require 'date'
 require 'fileutils'
+require 'open3'
 require 'pathname'
 require 'tempfile'
 require 'yaml'
@@ -54,20 +55,83 @@ def run!(cmd)
   cmdout
 end
 
-class DiscDevice
-  attr_reader :name, :uuid, :info
+class Disc
+  attr_reader :name, :mountpoint
   def initialize(name)
     @name = name
-    @uuid = nil
-    @info = {}
-
     @mountpoint = "/Volumes/#{@name}"
-    @attached = (run!("diskutil list") =~ Regexp.new(" #{@name} "))
-    set_info if @attached
   end
 
   def attached?()
-    @attached
+    Regexp.new(" #{@name} ") === run!("diskutil list")
+  end
+
+  def mounted?()
+    ! dev.nil?
+    # cmdout = run!("mount")
+    # mounted = (Regexp.new(" on #{@mountpoint} ") === cmdout)
+    # return mounted
+  end
+
+  def path()
+    mounted? ? @mountpoint : nil
+  end
+
+  def dev()
+    cmdout = run!("mount")
+    re=Regexp.new("/dev/(.*) on #{@mountpoint} ")
+    m=re.match(cmdout)
+    return m.nil? ? nil : m[1]
+  end
+end
+
+class DiscImage < Disc
+  attr_reader :imagepath
+  def initialize(name, imgpath)
+    super(name)
+    @imagepath = imgpath
+    @info = nil
+  end
+
+  def locked?
+    return true if attached?
+    if @info.nil? || !@info.key?('encrypted')
+      @info ||= {}
+      cmdout = run!("hdiutil isencrypted #{@imagepath}")
+      cmdout.lines.map{|l| l.chomp}.each do |l|
+        k, v = l.split(/:\s*/)
+        @info[k.strip] = v
+      end
+    end
+    return @info['encrypted'] == "YES"
+  end
+
+  def mount(pass=nil)
+    out, status = Open3.capture2("hdiutil attach -stdinpass #{@imagepath} -mountpoint #{@mountpoint}", :stdin_data=>pass)
+    if status.exitstatus == 0
+      @dev = out.lines.first.split.first.sub("/dev/", "")
+      return true
+    else
+      return false
+    end
+  end
+
+  def unmount()
+    if mounted?
+      run!("hdiutil detach #{dev}")
+    end
+    return !mounted?
+  end
+
+end
+
+class DiscDevice < Disc
+  attr_reader :uuid, :info
+  def initialize(name)
+    super(name)
+    @uuid = nil
+    @info = {}
+    set_info if attached?
   end
 
   def locked?
@@ -79,24 +143,15 @@ class DiscDevice
     not @uuid.nil?
   end
 
-  def mounted?()
-    cmdout = run!("mount")
-    return (cmdout =~ Regexp.new(" /Volumes/#{@name} ")) ? true : false
-  end
-
   # return the name of the mount point or false if device cannot be mounted
   def mount(pass=nil)
-    return false unless @attached
+    return false unless attached?
     return false if pass.nil? and locked?
     if @uuid
       return false unless unlock(pass)
     end
     cmdsta, cmdout = run("diskutil mount #{@name}")
     return cmdsta == 0
-  end
-
-  def path()
-    mounted? ? @mountpoint : nil
   end
 
   def unmount()
@@ -160,7 +215,6 @@ class DiscDevice
       return false
     end
   end
-
 end
 
 # d = DiscDevice.new("RsyncBackup")
@@ -184,40 +238,47 @@ end
 #   end
 # end
 
+def get_device_password(devconf)
+  devicePass=nil
+  # if a path is given then we assume the password is in an external file
+  # a) the first line of a plain
+  # b) a dictionary from a yml file that stores the pass on the 'pass' key
+  if devconf.key?('path')
+    p = Pathname.new(devconf['path'])
+    die "Cannot read backup device password file #{p}" unless (p.file? and p.readable?)
+    if p.extname == ".yml"
+      clog "Reading password from yml file #{p} (ext=#{p.extname})", 2
+      allpass = YAML.load_file(p)
+      die "Cannot find password for backup disk #{bkpdev.name} in yml file #{p}" unless allpass.key?(devconf['pass'])
+      devicePass = allpass[devconf['pass']]
+    else
+      clog "Reading password from plain text file #{p} (ext=#{p.extname})", 2
+      devicePass = File.open(p) {|f| f.readline}
+    end
+  elsif devconf.key?('pass')
+    devicePass = devconf['pass']
+  end
+  return devicePass
+end
+
 def mount_device!(devconf)
-  bkpdev = DiscDevice.new(devconf['name'])
-  die "Backup disk not attached" unless bkpdev.attached?
-  
+  if devconf.key?('image') 
+    bkpdev = DiscImage.new(devconf['name'], devconf['image'])
+  else
+    bkpdev = DiscDevice.new(devconf['name'])
+  end
+
   mountpath = nil
   if bkpdev.locked?
-    devicePass=nil
-    # if a path is given then we assume the password is in an external file
-    # a) the first line of a plain
-    # b) a dictionary from a yml file that stores the pass on the 'pass' key
-    if devconf.key?('path')
-      p = Pathname.new(devconf['path'])
-      die "Cannot read backup device password file #{p}" unless (p.file? and p.readable?)
-      if p.extname == ".yml"
-        clog "Reading password from yml file #{p} (ext=#{p.extname})", 2
-        allpass = YAML.load_file(p)
-        die "Cannot find password for backup disk #{bkpdev.name} in yml file #{p}" unless allpass.key?(devconf['pass'])
-        devicePass = allpass[devconf['pass']]
-      else
-        clog "Reading password from plain text file #{p} (ext=#{p.extname})", 2
-        devicePass = File.open(p) {|f| f.readline}
-      end
-    elsif devconf.key?('pass')
-      devicePass = devconf['pass']
-    else
-      die "Encrypted disk #{bkpdev.name} needs password to be mounted"
-    end
+    devicePass=get_device_password(devconf)
+    die "Encrypted disk #{bkpdev.name} needs password to be mounted" if devicePass.nil?
     clog "Mounting locked backup device with password #{devicePass}", 2
     bkpdev.mount(devicePass)
   else
     clog "Mounting unlocked backup device without password", 2
     bkpdev.mount
   end
-  die "Could not mount Backup disk #{bkpdev.name}" unless bkpdev.path
+  die "Could not mount Backup disk #{bkpdev.name}" unless bkpdev.mounted?
   clog "Backup disk successfully mounted", 2
   return bkpdev
 end
