@@ -1,6 +1,6 @@
 # Mac RSync backup
 
-A script that I use for making periodic copies of selected folders from my laptop to an external (encrypted) disk. It uses the classic _rsync_  with hard links pattern. Therefore, nothing new. The only interesting things are the commands for mounting and decryptin disk devices with `diskutils`. 
+A script that I use for making periodic copies of selected folders from my laptop to an external (encrypted) disk. It uses the classic _rsync_  with hard links pattern. Therefore, nothing new. The only interesting things are the commands for mounting and decrypting disk devices with `diskutils`. 
 
 ## Installation
 
@@ -18,10 +18,10 @@ This will setup a launchctl job that will run every 30 minutes.
 The script is configured with a `yaml` file. The path of the file (either full or relative to a set of standard paths) is passed as parameter to the script.
  
 The configuration file is essentially divided in two parts: 
-  1. few global parameters (name of the backup disk, global `rsync` exclude rules, etc.)
-  2. a list of _backups_ each providing at least a _dir_ or a _path_ entry. Where
-    * a _dir_ will be _rsynced_ as is;
-    * a _path_ will only get its childer directories _rsynced_;
+ 1. few global parameters (name of the backup disk, global `rsync` exclude rules, etc.)
+ 2. a list of _backups_ each providing at least a _dir_ or a _path_ entry. Where
+   * a _dir_ will be _rsynced_ as is;
+   * a _path_ will only get its childer directories _rsynced_;
  
  Here is an example:
 
